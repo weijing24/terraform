@@ -28,31 +28,37 @@ The following example demonstrates a simple Terraform configuration that creates
 
 ```hcl
 # main.tf
+
+provider "aws" {
+    region = "eu-central-1"
+}
+
 variable "bucket_prefix" {
   type = string
 }
 
 resource "aws_s3_bucket" "bucket" {
-  name = "${var.bucket_prefix}_bucket"
+  bucket = "${var.bucket_prefix}-bucket"
 }
 
 output "bucket_name" {
-  value = "${var.bucket_prefix}_bucket"
+  value = aws_s3_bucket.bucket.bucket
 }
 ```
 
 ```hcl
 # valid_string_concat.tftest
+
 variables {
   bucket_prefix = "test"
 }
 
 run "valid_string_concat" {
 
-  command = apply
+  command = plan
 
   assert {
-    condition     = aws_s3_bucket.bucket.name == "test_bucket"
+    condition     = aws_s3_bucket.bucket.bucket == "test-bucket"
     error_message = "S3 bucket name did not match expected"
   }
 
@@ -105,6 +111,7 @@ Continuing our [example](#example) from above:
 
 ```hcl
 # variable_precedence.tftest
+
 variables {
   bucket_prefix = "test"
 }
@@ -114,7 +121,7 @@ run "uses_root_level_value" {
   command = plan
 
   assert {
-    condition     = aws_s3_bucket.bucket.name == "test_bucket"
+    condition     = aws_s3_bucket.bucket.bucket == "test-bucket"
     error_message = "S3 bucket name did not match expected"
   }
 
@@ -129,7 +136,7 @@ run "overrides_root_level_value" {
   }
 
   assert {
-    condition     = aws_s3_bucket.bucket.name == "other_bucket"
+    condition     = aws_s3_bucket.bucket.bucket == "other-bucket"
     error_message = "S3 bucket name did not match expected"
   }
 
@@ -160,21 +167,49 @@ By default, within each `run` block all defined providers will be made directly 
 
 If no provider configuration is provided within a testing file, Terraform will attempt to initialize any providers within the configuration using their default settings. For example, any environment variables aimed at configuring providers will still be available and will be used by Terraform to create default providers.
 
-Extending the previous [example](#example) by ensuring our tests run in the correct region:
+Extending the previous [example](#example) to allow our tests to specify the region instead of the configuration:
+
+```hcl
+# main.tf
+
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+    }
+  }
+}
+
+variable "bucket_prefix" {
+  type = string
+}
+
+resource "aws_s3_bucket" "bucket" {
+  bucket = "${var.bucket_prefix}-bucket"
+}
+
+output "bucket_name" {
+  value = aws_s3_bucket.bucket.bucket
+}
+```
 
 ```hcl
 # customised_provider.tftest
+
 provider "aws" {
-  region = "us-east-1"
+    region = "eu-central-1"
 }
 
+variables {
+  bucket_prefix = "test"
+}
 
 run "valid_string_concat" {
 
-  command = apply
+  command = plan
 
   assert {
-    condition     = aws_s3_bucket.bucket.name == "test_bucket"
+    condition     = aws_s3_bucket.bucket.bucket == "test-bucket"
     error_message = "S3 bucket name did not match expected"
   }
 
@@ -185,86 +220,148 @@ We can also create a more complex example, that makes use of multiple providers 
 
 ```hcl
 # main.tf
+
 terraform {
   required_providers {
     aws = {
-      source = "hashicorp/aws"
-      configuration_aliases = [us-east-1, eu-west-1]
+      source                = "hashicorp/aws"
+      configuration_aliases = [aws.secondary]
     }
   }
 }
 
 variable "bucket_prefix" {
   default = "test"
-  type = string
+  type    = string
 }
 
-resource "aws_s3_bucket" "us-east-1_bucket" {
-  provider = aws.us-east-1
-  name = "${var.bucket_prefix}_us-east-1_bucket"
+resource "aws_s3_bucket" "primary_bucket" {
+  bucket = "${var.bucket_prefix}-primary"
 }
 
-resource "aws_s3_bucket" "eu-west-1_bucket" {
-  provider = aws.eu-west-1
-  name = "${var.bucket_prefix}_eu-west-1_bucket"
+resource "aws_s3_bucket" "secondary_bucket" {
+  provider = aws.secondary
+  bucket   = "${var.bucket_prefix}-secondary"
 }
 ```
 
 ```hcl
 # customised_providers.tftest
+
 provider "aws" {
   region = "us-east-1"
 }
 
 provider "aws" {
-  alias = "eu-west-1"
-  region = "eu-west-1"
+  alias  = "secondary"
+  region = "eu-central-1"
 }
 
 run "providers" {
+
+  command = plan
+
+  assert {
+    condition     = aws_s3_bucket.primary_bucket.bucket == "test-primary"
+    error_message = "invalid value for primary S3 bucket"
+  }
+
+  assert {
+    condition     = aws_s3_bucket.secondary_bucket.bucket == "test-secondary"
+    error_message = "invalid value for secondary S3 bucket"
+  }
+}
+```
+
+It is also possible to define specific providers you want to use in specific `run` blocks:
+
+```hcl
+# main.tf
+
+terraform {
+  required_providers {
+    aws = {
+      source                = "hashicorp/aws"
+      configuration_aliases = [aws.secondary]
+    }
+  }
+}
+
+data "aws_region" "primary" {}
+
+data "aws_region" "secondary" {
+  provider = aws.secondary
+}
+
+variable "bucket_prefix" {
+  default = "test"
+  type    = string
+}
+
+resource "aws_s3_bucket" "primary_bucket" {
+  bucket = "${var.bucket_prefix}-${data.aws_region.primary.name}-primary"
+}
+
+resource "aws_s3_bucket" "secondary_bucket" {
+  provider = aws.secondary
+  bucket   = "${var.bucket_prefix}-${data.aws_region.secondary.name}-secondary"
+}
+```
+
+```hcl
+provider "aws" {
+  region = "us-east-1"
+}
+
+provider "aws" {
+  alias  = "secondary"
+  region = "eu-central-1"
+}
+
+provider "aws" {
+  alias  = "tertiary"
+  region = "eu-west-2"
+}
+
+run "providers" {
+
+  command = plan
+
+  assert {
+    condition     = aws_s3_bucket.primary_bucket.bucket == "test-us-east-1-primary"
+    error_message = "invalid value for primary S3 bucket"
+  }
+
+  assert {
+    condition     = aws_s3_bucket.secondary_bucket.bucket == "test-eu-central-1-secondary"
+    error_message = "invalid value for secondary S3 bucket"
+  }
+}
+
+run "providers" {
+
+  command = plan
+
   providers = {
-     aws.us-east-1 = aws
-     aws.eu-west-1 = aws.eu-west-1
+    aws           = aws
+    aws.secondary = aws.tertiary
   }
 
   assert {
-     condition = aws_s3_bucket.eu-west-1_bucket.name == "test_eu-west-1_bucket"
-     error_message = "invalid value for eu-west-1 S3 bucket"
+    condition     = aws_s3_bucket.primary_bucket.bucket == "test-us-east-1-primary"
+    error_message = "invalid value for primary S3 bucket"
   }
 
   assert {
-     condition = aws_s3_bucket.us-east-1_bucket.name == "test_us-east-1_bucket"
-     error_message = "invalid value for us-east-1 S3 bucket"
+    condition     = aws_s3_bucket.secondary_bucket.bucket == "test-eu-west-2-secondary"
+    error_message = "invalid value for secondary S3 bucket"
   }
 }
 ```
 
-You could avoid the `providers` attribute within the run block by setting the `alias` value on both providers. This allows Terraform to calculate the link between the required providers and the supplied providers automatically:
+> **Note:** When running tests in `apply` mode switching providers between `run` blocks can result in failed operations and tests as resources created by one provider definition will be unusable when modified by a second.
 
-```hcl
-# customised_providers.tftest
-provider "aws" {
-  alias = "us-east-1"
-  region = "us-east-1"
-}
-
-provider "aws" {
-  alias = "eu-west-1"
-  region = "eu-west-1"
-}
-
-run "providers" {
-  assert {
-     condition = aws_s3_bucket.eu-west-1_bucket.name == "test_eu-west-1_bucket"
-     error_message = "invalid value for eu-west-1 S3 bucket"
-  }
-
-  assert {
-     condition = aws_s3_bucket.us-east-1_bucket.name == "test_us-east-1_bucket"
-     error_message = "invalid value for us-east-1 S3 bucket"
-  }
-}
-```
+> **Warning:** As Terraform executes a destroy operation at the conclusion of each test file you must provide adequate provider definitions at the file level such that Terraform can infer the correct providers to use during the destroy operation.
 
 ### Modules
 
@@ -307,7 +404,7 @@ data "aws_s3_bucket" "bucket" {
   bucket = var.bucket
 }
 
-resource "aws_s3_bucket_object" "object" {
+resource "aws_s3_object" "object" {
   for_each = var.files
 
   bucket = data.aws_s3_bucket.bucket.id
@@ -319,7 +416,8 @@ resource "aws_s3_bucket_object" "object" {
 ```
 
 ```hcl
-# testing/setup.tf
+# testing/setup/main.tf
+
 variable "bucket" {
   type = string
 }
@@ -330,23 +428,25 @@ resource "aws_s3_bucket" "bucket" {
 ```
 
 ```hcl
-# testing/loader.tf
+# testing/loader/main.tf
+
 variable "bucket" {
   type = string
 }
 
-data "aws_s3_bucket_objects" "objects" {
+data "aws_s3_objects" "objects" {
   bucket = var.bucket
 }
 ```
 
 ```hcl
 # file_count.tftest
+
 variables {
   bucket = "my_test_bucket"
   files = {
-    "file_one.txt": "data/files/file_one.txt"
-    "file_two.txt": "data/files/file_two.txt"
+    "file-one.txt": "data/files/file_one.txt"
+    "file-two.txt": "data/files/file_two.txt"
   }
 }
 
@@ -358,7 +458,7 @@ run "setup" {
   # Create the S3 bucket we will use later.
 
   module {
-    source = "./testing/setup.tf"
+    source = "./testing/setup"
   }
 }
 
@@ -370,15 +470,14 @@ run "verify" {
   # Load and count the objects created in the "execute" run block.
 
   module {
-    source = "./testing/loader.tf"
+    source = "./testing/loader"
   }
 
   assert {
-    condition = length(data.aws_s3_bucket_objects.objects.keys) == 2
+    condition = length(data.aws_s3_objects.objects.keys) == 2
     error_message = "created the wrong number of s3 objects"
   }
 }
-
 ```
 
 #### Modules State
@@ -417,11 +516,11 @@ A quick example here demonstrates testing the `validation` block on an input var
 ```hcl
 # main.tf
 
-input "count" {
+variable "input" {
   type = number
 
   validation {
-    condition = var.count % 2 == 0
+    condition = var.input % 2 == 0
     error_message = "must by even number"
   }
 }
@@ -431,9 +530,8 @@ input "count" {
 # input_validation.tftest
 
 variables {
-  count = 0
+  input = 0
 }
-
 
 run "zero" {
   # The variable defined above is even, so we expect the validation to pass.
@@ -447,12 +545,11 @@ run "one" {
   command = plan
 
   variables {
-    count = 1
+    input = 1
   }
 
   expect_failures = [
-    input.count,
+    var.input,
   ]
 }
-
 ```
