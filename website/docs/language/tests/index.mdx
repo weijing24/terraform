@@ -12,7 +12,7 @@ Terraform tests allow module authors to validate the functionality of their modu
 
 ## Syntax
 
-Each Terraform test is contained within a test file. Test files are discovered by Terraform due to their file extension: `.tftest`.
+Each Terraform test is contained within a test file. Test files are discovered by Terraform due to their file extension: `.tftest.hcl`.
 
 Each test file contains the following root level attributes and blocks:
 
@@ -47,7 +47,7 @@ output "bucket_name" {
 ```
 
 ```hcl
-# valid_string_concat.tftest
+# valid_string_concat.tftest.hcl
 
 variables {
   bucket_prefix = "test"
@@ -110,7 +110,7 @@ The test file syntax supports `variables` blocks at both the root level and with
 Continuing our [example](#example) from above:
 
 ```hcl
-# variable_precedence.tftest
+# variable_precedence.tftest.hcl
 
 variables {
   bucket_prefix = "test"
@@ -194,7 +194,7 @@ output "bucket_name" {
 ```
 
 ```hcl
-# customised_provider.tftest
+# customised_provider.tftest.hcl
 
 provider "aws" {
     region = "eu-central-1"
@@ -246,7 +246,7 @@ resource "aws_s3_bucket" "secondary_bucket" {
 ```
 
 ```hcl
-# customised_providers.tftest
+# customised_providers.tftest.hcl
 
 provider "aws" {
   region = "us-east-1"
@@ -440,7 +440,7 @@ data "aws_s3_objects" "objects" {
 ```
 
 ```hcl
-# file_count.tftest
+# file_count.tftest.hcl
 
 variables {
   bucket = "my_test_bucket"
@@ -527,7 +527,7 @@ variable "input" {
 ```
 
 ```hcl
-# input_validation.tftest
+# input_validation.tftest.hcl
 
 variables {
   input = 0
