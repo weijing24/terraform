@@ -7,6 +7,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"os"
 
 	"github.com/mitchellh/colorstring"
 	"github.com/zclconf/go-cty/cty"
@@ -325,7 +326,7 @@ func getPlanActionAndShow(old cty.Value, new cty.Value) (plans.Action, bool) {
 func (p *blockBodyDiffPrinter) writeAttrDiff(name string, attrS *configschema.Attribute, old, new cty.Value, nameLen, indent int, path cty.Path) bool {
 	path = append(path, cty.GetAttrStep{Name: name})
 	action, showJustNew := getPlanActionAndShow(old, new)
-
+  showSensitiveValue := os.Getenv("TF_SHOW_SENSITIVE")
 	if action == plans.NoOp && p.concise && !identifyingAttribute(name, attrS) {
 		return true
 	}
@@ -343,7 +344,7 @@ func (p *blockBodyDiffPrinter) writeAttrDiff(name string, attrS *configschema.At
 	p.buf.WriteString(strings.Repeat(" ", nameLen-len(name)))
 	p.buf.WriteString(" = ")
 
-	if attrS.Sensitive {
+	if attrS.Sensitive && (showSensitiveValue == "" || strings.ToLower(showSensitiveValue) == "false") {
 		p.buf.WriteString("(sensitive value)")
 	} else {
 		switch {
